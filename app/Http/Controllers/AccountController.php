@@ -2,65 +2,54 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\AccountRequest;
+use App\Mail\AccountActivated;
+use App\Mail\AccountDeactivated;
 use App\Models\LoyaltyAccount;
+use App\Services\AccountService;
+use App\Services\NotifyService;
 use Illuminate\Http\Request;
 
 class AccountController extends Controller
 {
+
+    private $accountService;
+    private $notifyService;
+
+    public function __construct(AccountService $accountService, NotifyService $notifyService)
+    {
+        $this->accountService = $accountService;
+        $this->notifyService = $notifyService;
+    }
+
     public function create(Request $request)
     {
-        return LoyaltyAccount::create($request->all());
+        return $this->accountService->create($request->all());
     }
 
-    public function activate($type, $id)
+    public function activate(AccountRequest $request, $type, $id)
     {
-        if (($type == 'phone' || $type == 'card' || $type == 'email') && $id != '') {
-            if ($account = LoyaltyAccount::where($type, '=', $id)->first()) {
-                if (!$account->active) {
-                    $account->active = true;
-                    $account->save();
-                    $account->notify('Account restored');
-                }
-            } else {
-                return response()->json(['message' => 'Account is not found'], 400);
-            }
-        } else {
-            throw new \InvalidArgumentException('Wrong parameters');
-        }
+        $user = $this->accountService->setActivationStatus($type, $id);
+
+        $this->notifyService->notify(
+            $user,
+            new AccountActivated($user->getBalance()),
+            'Account restored'
+        );
 
         return response()->json(['success' => true]);
     }
 
-    public function deactivate($type, $id)
+    public function deactivate(AccountRequest $request, $type, $id)
     {
-        if (($type == 'phone' || $type == 'card' || $type == 'email') && $id != '') {
-            if ($account = LoyaltyAccount::where($type, '=', $id)->first()) {
-                if ($account->active) {
-                    $account->active = false;
-                    $account->save();
-                    $account->notify('Account banned');
-                }
-            } else {
-                return response()->json(['message' => 'Account is not found'], 400);
-            }
-        } else {
-            throw new \InvalidArgumentException('Wrong parameters');
-        }
-
+        $user = $this->accountService->setActivationStatus($type, $id, 0);
+        $this->notifyService->notify($user, new AccountDeactivated(), 'Account banned');
         return response()->json(['success' => true]);
     }
 
-    public function balance($type, $id)
+    public function balance(AccountRequest $request, $type, $id)
     {
-        if (($type == 'phone' || $type == 'card' || $type == 'email') && $id != '') {
-            if ($account = LoyaltyAccount::where($type, '=', $id)->first()) {
-                return response()->json(['balance' => $account->getBalance()], 400);
-
-            } else {
-                return response()->json(['message' => 'Account is not found'], 400);
-            }
-        } else {
-            throw new \InvalidArgumentException('Wrong parameters');
-        }
+        $balance = $this->accountService->getBalance($type, $id);
+        return response()->json(['balance' => $balance], 400);
     }
 }
